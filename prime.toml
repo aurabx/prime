@@ -1,0 +1,21 @@
+[dicom]
+bind_addr = "0.0.0.0"
+port = 11112
+ae_title = "PRIME_SCP"
+max_associations = 10
+
+[storage]
+base_path = "./data"
+jmix_dir = "jmix-packages"
+dicom_temp_dir = "dicom-temp"
+
+[jmix]
+skip_hashing = false
+skip_listing = false
+
+[http]
+bind_addr = "0.0.0.0"
+port = 8080
+
+[database]
+path = "./data/prime.redb"

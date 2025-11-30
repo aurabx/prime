@@ -1,0 +1,55 @@
+[package]
+name = "prime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Local crates from harmony-proxy
+dimse = { path = "../harmony-proxy/crates/dimse" }
+
+# JMIX
+jmix-rs = "0.3"
+
+# DICOM
+dicom-object = "0.9"
+dicom-core = "0.9"
+dicom-dictionary-std = "0.9"
+dicom-pixeldata = { version = "0.9", features = ["image", "rle", "jpeg"] }
+dicom-ul = { version = "0.9", features = ["async"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+
+# HTTP server
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+
+# Database
+redb = "2.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+walkdir = "2.5"
+tempfile = "3.10"
+futures = "0.3"
+bytes = "1.0"
+mime = "0.3"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ContactInfo","FileConfig"],"struct":["AssertionConfig","Config","ConsentConfig","EncryptionConfig","Entity","IdentifierConfig","PatientConfig","ReportConfig","SecurityConfig","StudyConfig","ValidationConfig","VerificationConfig"]};

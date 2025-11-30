@@ -1,0 +1,1 @@
+cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/Users/xtfer/working/runbeam/prime/target/debug/build/mime_guess-d2bbfb3a02d36c87/out/mime_types_generated.rs
