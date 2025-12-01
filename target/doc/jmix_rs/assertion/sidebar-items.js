@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["VerificationResult"],"struct":["AssertionManager","AssertionResult"]};

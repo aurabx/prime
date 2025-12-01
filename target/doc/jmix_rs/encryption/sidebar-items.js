@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["EncryptionError"],"struct":["DecryptionManager","EncryptionManager","EncryptionResult","KeyPair"]};

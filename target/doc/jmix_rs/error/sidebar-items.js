@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["CryptographyError","JmixError","ValidationError"],"type":["JmixResult"]};
