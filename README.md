@@ -59,6 +59,10 @@ GET /health
 ```
 GET /api/jmix
 GET /api/jmix?studyInstanceUid=1.2.3.4
+GET /api/jmix?patientId=12345
+GET /api/jmix?startDate=2024-01-01&endDate=2024-01-31
+GET /api/jmix?modality=CT
+GET /api/jmix?patientName=John%20Doe
 GET /api/jmix?limit=10&offset=0
 ```
 
@@ -75,6 +79,31 @@ HEAD /api/jmix/{id}
 ### Get Package Manifest
 ```
 GET /api/jmix/{id}/manifest
+```
+
+### Get Package Status
+```
+GET /api/jmix/{id}/status
+```
+
+### Delete Package
+```
+DELETE /api/jmix/{id}
+```
+
+### List Resources in Package
+```
+GET /api/jmix/{id}/resources
+```
+
+### Get Resource Metadata
+```
+GET /api/jmix/{id}/resources/{resourceId}
+```
+
+### Download Resource Data
+```
+GET /api/jmix/{id}/resources/{resourceId}/data
 ```
 
 ## Sending DICOM Images

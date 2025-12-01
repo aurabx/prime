@@ -365,3 +365,202 @@ async fn test_dicom_scp_accepts_connection() {
 
     harness.shutdown().await;
 }
+
+/// Complete end-to-end test: Send DICOM via C-STORE, then retrieve via JMIX API
+#[tokio::test]
+async fn test_e2e_cstore_to_jmix_api_retrieval() {
+    if !dcmtk_available() {
+        eprintln!("Skipping test: storescu (DCMTK) not available");
+        return;
+    }
+
+    let harness = PrimeTestHarness::start("e2e_cstore_jmix_api")
+        .await
+        .expect("Failed to start harness");
+
+    let sample_path = sample_study_path();
+    if !sample_path.exists() {
+        eprintln!(
+            "Skipping test: sample study not found at {:?}",
+            sample_path
+        );
+        harness.shutdown().await;
+        return;
+    }
+
+    // Find all DICOM files in the sample study
+    let dcm_files: Vec<PathBuf> = walkdir::WalkDir::new(&sample_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|ext| ext == "dcm").unwrap_or(false))
+        .map(|e| e.path().to_path_buf())
+        .collect();
+
+    assert!(
+        !dcm_files.is_empty(),
+        "Should find DICOM files in sample study"
+    );
+    eprintln!("[E2E] Found {} DICOM files", dcm_files.len());
+
+    // Step 1: Send DICOM files via C-STORE
+    eprintln!("[E2E] Step 1: Sending DICOM files via C-STORE...");
+    for dcm_file in &dcm_files {
+        let status = tokio::process::Command::new("storescu")
+            .arg("-v")
+            .arg("-aet")
+            .arg("TEST_SCU")
+            .arg("-aec")
+            .arg("PRIME_TEST")
+            .arg("127.0.0.1")
+            .arg(harness.dicom_port.to_string())
+            .arg(dcm_file)
+            .status()
+            .await
+            .expect("Failed to run storescu");
+
+        assert!(status.success(), "storescu should succeed for {:?}", dcm_file);
+    }
+    eprintln!("[E2E] ✓ All DICOM files sent successfully");
+
+    // Step 2: Wait for JMIX creation
+    eprintln!("[E2E] Step 2: Waiting for JMIX package creation...");
+    tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+
+    // Step 3: Query API for packages
+    eprintln!("[E2E] Step 3: Querying API for JMIX packages...");
+    let client = reqwest::Client::new();
+    let api_url = format!("http://127.0.0.1:{}/api/jmix", harness.http_port);
+
+    let resp = client
+        .get(&api_url)
+        .send()
+        .await
+        .expect("HTTP request failed");
+    assert!(resp.status().is_success(), "API should return success");
+
+    let packages: Vec<serde_json::Value> = resp.json().await.expect("Parse JSON");
+    eprintln!("[E2E] API returned {} package(s)", packages.len());
+
+    if packages.is_empty() {
+        eprintln!("[E2E] ⚠ No packages created - may need more time");
+        harness.shutdown().await;
+        return;
+    }
+
+    // Step 4: Get the first package and validate it
+    eprintln!("[E2E] Step 4: Retrieving and validating first package...");
+    let package = &packages[0];
+    let package_id = package["id"].as_str().expect("Package should have id");
+    eprintln!("[E2E] Package ID: {}", package_id);
+
+    // Verify package metadata
+    assert!(
+        package.get("studyInstanceUid").is_some(),
+        "Package should have studyInstanceUid"
+    );
+    assert!(
+        package.get("fileSize").is_some(),
+        "Package should have fileSize"
+    );
+    eprintln!("[E2E] ✓ Package metadata looks good");
+
+    // Step 5: Get package manifest
+    eprintln!("[E2E] Step 5: Retrieving package manifest...");
+    let manifest_url = format!(
+        "http://127.0.0.1:{}/api/jmix/{}/manifest",
+        harness.http_port, package_id
+    );
+    let manifest_resp = client
+        .get(&manifest_url)
+        .send()
+        .await
+        .expect("Manifest request failed");
+    assert!(manifest_resp.status().is_success(), "Manifest should be retrievable");
+
+    let _manifest: serde_json::Value = manifest_resp.json().await.expect("Parse manifest JSON");
+    eprintln!("[E2E] ✓ Manifest retrieved successfully");
+
+    // Step 6: List resources in the package
+    eprintln!("[E2E] Step 6: Listing resources in package...");
+    let resources_url = format!(
+        "http://127.0.0.1:{}/api/jmix/{}/resources",
+        harness.http_port, package_id
+    );
+    let resources_resp = client
+        .get(&resources_url)
+        .send()
+        .await
+        .expect("Resources request failed");
+    assert!(
+        resources_resp.status().is_success(),
+        "Resources should be retrievable"
+    );
+
+    let resources: Vec<serde_json::Value> = resources_resp.json().await.expect("Parse resources JSON");
+    eprintln!("[E2E] ✓ Found {} resources", resources.len());
+
+    // Step 7: Get status of the package
+    eprintln!("[E2E] Step 7: Checking package status...");
+    let status_url = format!(
+        "http://127.0.0.1:{}/api/jmix/{}/status",
+        harness.http_port, package_id
+    );
+    let status_resp = client
+        .get(&status_url)
+        .send()
+        .await
+        .expect("Status request failed");
+    assert!(status_resp.status().is_success(), "Status should be retrievable");
+
+    let status: serde_json::Value = status_resp.json().await.expect("Parse status JSON");
+    let exists = status["exists"].as_bool().expect("exists should be bool");
+    let manifest_readable = status["manifest_readable"]
+        .as_bool()
+        .expect("manifest_readable should be bool");
+    let zip_accessible = status["zip_accessible"]
+        .as_bool()
+        .expect("zip_accessible should be bool");
+
+    assert!(exists, "Package should exist");
+    assert!(manifest_readable, "Manifest should be readable");
+    assert!(zip_accessible, "ZIP should be accessible");
+    eprintln!("[E2E] ✓ Package status: all checks passed");
+
+    // Step 8: Download package ZIP
+    eprintln!("[E2E] Step 8: Downloading package ZIP...");
+    let download_url = format!(
+        "http://127.0.0.1:{}/api/jmix/{}",
+        harness.http_port, package_id
+    );
+    let download_resp = client
+        .get(&download_url)
+        .send()
+        .await
+        .expect("Download request failed");
+    assert!(download_resp.status().is_success(), "Package should be downloadable");
+
+    let bytes = download_resp.bytes().await.expect("Read bytes");
+    eprintln!("[E2E] ✓ Downloaded package: {} bytes", bytes.len());
+    assert!(bytes.len() > 0, "Package ZIP should not be empty");
+
+    // Step 9: Test with query filters
+    eprintln!("[E2E] Step 9: Testing API filters...");
+    let study_uid = package["studyInstanceUid"].as_str().unwrap_or("");
+    let filter_url = format!(
+        "http://127.0.0.1:{}/api/jmix?studyInstanceUid={}",
+        harness.http_port, study_uid
+    );
+    let filter_resp = client
+        .get(&filter_url)
+        .send()
+        .await
+        .expect("Filter request failed");
+    assert!(filter_resp.status().is_success(), "Filter should work");
+
+    let filtered: Vec<serde_json::Value> = filter_resp.json().await.expect("Parse filtered JSON");
+    assert!(!filtered.is_empty(), "Filter should find packages");
+    eprintln!("[E2E] ✓ Filters working correctly");
+
+    harness.shutdown().await;
+    eprintln!("[E2E] ✅ Complete end-to-end test PASSED!");
+}

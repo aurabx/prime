@@ -64,9 +64,48 @@ impl JmixCreator {
         let metadata = fs::metadata(&zip_path)?;
         let file_size = metadata.len();
 
+        // Extract metadata from the saved manifest
+        let manifest_path = pkg_dir.join("manifest.json");
+        let (patient_id, patient_name, study_date, study_time, modality) = if manifest_path.exists() {
+            let content = fs::read_to_string(&manifest_path)
+                .context("Failed to read manifest")?;
+            if let Ok(serde_val) = serde_json::from_str::<serde_json::Value>(&content) {
+                let patient_id = serde_val.get("patient")
+                    .and_then(|p| p.get("id"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let patient_name = serde_val.get("patient")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let study_date = serde_val.get("study")
+                    .and_then(|s| s.get("date"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let study_time = serde_val.get("study")
+                    .and_then(|s| s.get("time"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let modality = serde_val.get("study")
+                    .and_then(|s| s.get("modality"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                (patient_id, patient_name, study_date, study_time, modality)
+            } else {
+                (None, None, None, None, None)
+            }
+        } else {
+            (None, None, None, None, None)
+        };
+
         let record = JmixPackageRecord {
             id: jmix_id.clone(),
             study_uid: study_uid.to_string(),
+            patient_id,
+            patient_name,
+            study_date,
+            study_time,
+            modality,
             created_at: Utc::now().timestamp(),
             file_size,
             file_path: pkg_dir.to_string_lossy().to_string(),

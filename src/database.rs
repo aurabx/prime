@@ -6,14 +6,51 @@ use std::sync::Arc;
 
 const JMIX_PACKAGES: TableDefinition<&str, &str> = TableDefinition::new("jmix_packages");
 const STUDY_INDEX: TableDefinition<&str, &str> = TableDefinition::new("study_index");
+const RESOURCES: TableDefinition<&str, &str> = TableDefinition::new("resources");
+const PATIENT_INDEX: TableDefinition<&str, &str> = TableDefinition::new("patient_index");
+const MODALITY_INDEX: TableDefinition<&str, &str> = TableDefinition::new("modality_index");
+const DATE_INDEX: TableDefinition<&str, &str> = TableDefinition::new("date_index");
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct JmixPackageRecord {
     pub id: String,
     pub study_uid: String,
+    pub patient_id: Option<String>,
+    pub patient_name: Option<String>,
+    pub study_date: Option<String>,
+    pub study_time: Option<String>,
+    pub modality: Option<String>,
     pub created_at: i64,
     pub file_size: u64,
     pub file_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResourceRecord {
+    pub id: String,
+    pub package_id: String,
+    pub resource_type: String,
+    pub filename: String,
+    pub content_type: String,
+    pub size: u64,
+    pub hash: Option<String>,
+    pub series_uid: Option<String>,
+    pub sop_instance_uid: Option<String>,
+    pub sop_class_uid: Option<String>,
+    pub instance_number: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DateIndexEntry {
+    pub date: String,
+    pub package_ids: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IndexEntry {
+    pub key: String,
+    pub package_ids: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -36,6 +73,10 @@ impl Database {
         {
             let _ = write_txn.open_table(JMIX_PACKAGES)?;
             let _ = write_txn.open_table(STUDY_INDEX)?;
+            let _ = write_txn.open_table(RESOURCES)?;
+            let _ = write_txn.open_table(PATIENT_INDEX)?;
+            let _ = write_txn.open_table(MODALITY_INDEX)?;
+            let _ = write_txn.open_table(DATE_INDEX)?;
         }
         write_txn.commit()?;
         
@@ -136,6 +177,41 @@ impl Database {
         
         Ok(results)
     }
+    
+    pub fn delete_package(&self, id: &str) -> Result<()> {
+        let pkg = self.get_package(id)?;
+        if let Some(pkg_record) = pkg {
+            let write_txn = self.db.begin_write()?;
+            {
+                let mut pkg_table = write_txn.open_table(JMIX_PACKAGES)?;
+                let mut study_table = write_txn.open_table(STUDY_INDEX)?;
+                
+                // Remove from main packages table
+                pkg_table.remove(id)?;
+                
+                // Update study index to remove the package ID
+                let study_uid_str = pkg_record.study_uid.as_str();
+                let filtered_ids: Vec<String> = if let Some(ids_record) = study_table.get(study_uid_str)? {
+                    let ids: Vec<String> = serde_json::from_str(ids_record.value())?;
+                    ids.into_iter()
+                        .filter(|pid| pid != id)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                
+                if filtered_ids.is_empty() {
+                    // Remove the entire study index if there are no more packages for this study
+                    study_table.remove(study_uid_str)?;
+                } else {
+                    let ids_json = serde_json::to_string(&filtered_ids)?;
+                    study_table.insert(study_uid_str, ids_json.as_str())?;
+                }
+            }
+            write_txn.commit()?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -147,6 +223,11 @@ mod tests {
         JmixPackageRecord {
             id: id.to_string(),
             study_uid: study_uid.to_string(),
+            patient_id: None,
+            patient_name: None,
+            study_date: None,
+            study_time: None,
+            modality: None,
             created_at: 1234567890,
             file_size: 1024,
             file_path: format!("/test/{}", id),
