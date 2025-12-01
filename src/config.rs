@@ -10,6 +10,22 @@ pub struct Config {
     pub jmix: JmixConfig,
     pub http: HttpConfig,
     pub database: DatabaseConfig,
+    #[serde(default = "default_authorized_aes")]
+    pub authorized_aes: Vec<AuthorizedAEConfig>,
+    
+    /// Whether to reject connections from AEs not in authorized_aes
+    /// If true, only AEs explicitly listed in authorized_aes will be accepted
+    /// If false (default), all AEs are accepted
+    #[serde(default = "default_strict_ae_auth")]
+    pub strict_ae_auth: bool,
+}
+
+fn default_authorized_aes() -> Vec<AuthorizedAEConfig> {
+    Vec::new()
+}
+
+fn default_strict_ae_auth() -> bool {
+    false
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -42,6 +58,13 @@ pub struct HttpConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct DatabaseConfig {
     pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AuthorizedAEConfig {
+    pub ae_title: String,
+    pub description: Option<String>,
+    pub allowed_ips: Option<Vec<String>>,
 }
 
 impl Config {
@@ -88,11 +111,22 @@ port = 8080
 
 [database]
 path = "./test_data/test.redb"
+
+[[authorized_aes]]
+ae_title = "TEST_SCP"
+description = "Test SCP for unit testing"
+allowed_ips = ["127.0.0.1"]
+
+[[authorized_aes]]
+ae_title = "ANOTHER_SCP"
+description = "Another test SCP"
 "#;
 
     #[test]
     fn test_parse_valid_config() {
         let config = Config::from_str(VALID_CONFIG).unwrap();
+        
+        assert!(!config.strict_ae_auth); // Should default to false
         
         assert_eq!(config.dicom.bind_addr, "127.0.0.1");
         assert_eq!(config.dicom.port, 11112);
@@ -109,7 +143,14 @@ path = "./test_data/test.redb"
         assert_eq!(config.http.bind_addr, "0.0.0.0");
         assert_eq!(config.http.port, 8080);
         
-        assert_eq!(config.database.path, PathBuf::from("./test_data/test.redb"));
+assert_eq!(config.database.path, PathBuf::from("./test_data/test.redb"));
+        
+        assert_eq!(config.authorized_aes.len(), 2);
+        assert_eq!(config.authorized_aes[0].ae_title, "TEST_SCP");
+        assert_eq!(config.authorized_aes[0].description.as_ref().unwrap(), &"Test SCP for unit testing");
+        assert_eq!(config.authorized_aes[0].allowed_ips.as_ref().unwrap()[0], "127.0.0.1");
+        assert_eq!(config.authorized_aes[1].ae_title, "ANOTHER_SCP");
+        assert_eq!(config.authorized_aes[1].description.as_ref().unwrap(), &"Another test SCP");
     }
 
     #[test]

@@ -39,6 +39,8 @@ impl QueryProvider for StoreHandler {
     }
 
     async fn store(&self, dataset: DatasetStream) -> Result<()> {
+        // AE validation is handled by the AuthorizedQueryProvider wrapper
+        
         let sop_instance = dataset.metadata().sop_instance_uid.clone()
             .unwrap_or_else(|| "unknown".to_string());
         

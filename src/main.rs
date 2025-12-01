@@ -5,7 +5,7 @@ use prime::database::Database;
 use prime::store_handler::StoreHandler;
 use prime::jmix_builder::JmixCreator;
 use prime::http_api::{AppState, create_router};
-use prime::dicom_service;
+use prime::ae_auth::start_authorized_dicom_scp;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -50,11 +50,13 @@ async fn main() -> Result<()> {
     let http_shutdown = CancellationToken::new();
     let scanner_shutdown = CancellationToken::new();
 
-    // Start DICOM SCP
+    // Start DICOM SCP with AE authorization
     let dicom_config = config.dicom.clone();
+    let authorized_aes = config.authorized_aes.clone();
+    let strict_auth = config.strict_ae_auth;
     let dicom_shutdown_clone = dicom_shutdown.clone();
     let dicom_handle = tokio::spawn(async move {
-        if let Err(e) = dicom_service::start_dicom_scp(dicom_config, store_handler, dicom_shutdown_clone).await {
+        if let Err(e) = start_authorized_dicom_scp(dicom_config, store_handler, authorized_aes, strict_auth, dicom_shutdown_clone).await {
             tracing::error!("DICOM SCP error: {}", e);
         }
     });

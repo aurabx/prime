@@ -1,0 +1,53 @@
+# Example configuration for Prime DICOM server with AE authorization
+
+[dicom]
+bind_addr = "0.0.0.0"
+port = 11112
+ae_title = "PRIME_SCP"
+max_associations = 10
+
+[storage]
+base_path = "./data"
+jmix_dir = "jmix"
+dicom_temp_dir = "temp"
+
+[jmix]
+skip_hashing = false
+skip_listing = false
+
+[http]
+bind_addr = "127.0.0.1"
+port = 8080
+
+[database]
+path = "./data/prime.redb"
+
+# Configuration for authorized Application Entities (AEs)
+# Only AEs listed here will be able to connect and store data
+
+# Whether to strictly enforce AE authorization
+# - true (default for this example): Reject all AEs not explicitly listed below
+# - false: Allow any AE to connect (not recommended for production)
+strict_ae_auth = true
+
+# List of authorized AEs
+[[authorized_aes]]
+ae_title = "ORTHANC_SCP"
+description = "Orthanc PACS server"
+# Optional: Only accept connections from these IP addresses
+allowed_ips = ["192.168.1.100", "10.0.0.50"]
+
+[[authorized_aes]]
+ae_title = "RADIOLOGY_MODALITY_A"
+description = "CT scanner in Radiology Room A"
+allowed_ips = ["10.1.10.20"]
+
+[[authorized_aes]]
+ae_title = "RADIOLOGY_MODALITY_B"
+description = "MRI scanner in Radiology Room B"
+allowed_ips = ["10.1.10.25"]
+
+[[authorized_aes]]
+ae_title = "CARDIOLOGY_WORKSTATION"
+description = "Cardiology review workstation"
+# No IP restrictions - will accept connection from any IP for this AE
