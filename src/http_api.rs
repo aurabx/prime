@@ -242,9 +242,13 @@ async fn read_manifest(state: &AppState, id: &str) -> Result<serde_json::Value, 
         let cursor = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(cursor)
             .map_err(|e| AppError::Internal(format!("Failed to open ZIP: {}", e)))?;
+        // zip 9.1+: reject LFH/CDFH mismatches (same hardening as ExtractOptions).
         for i in 0..archive.len() {
-            if let Ok(mut file) = archive.by_index(i) {
-                if file.name().ends_with("manifest.json") {
+            let read_opts = zip::read::ZipReadOptions::new().enforce_header_consistency(true);
+            if let Ok(mut file) = archive.by_index_with_options(i, read_opts) {
+                // zip 9.x: ZipFile::name() is a Result after lazy path decoding.
+                let Ok(name) = file.name() else { continue };
+                if name.ends_with("manifest.json") {
                     use std::io::Read;
                     let mut contents = String::new();
                     file.read_to_string(&mut contents)
