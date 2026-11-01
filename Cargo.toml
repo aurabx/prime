@@ -49,7 +49,9 @@ tempfile = "3.10"
 futures = "0.3"
 bytes = "1.0"
 mime = "0.3"
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
+# 9.0.5 is the first release that patches GHSA-m665-v7pm-7grj / CVE-2026-115905.
+# 9.1.0 adds has_duplicate_names and ExtractOptions::enforce_header_consistency.
+zip = { version = "9.1.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }

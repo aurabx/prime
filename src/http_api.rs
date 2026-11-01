@@ -239,25 +239,44 @@ async fn read_manifest(state: &AppState, id: &str) -> Result<serde_json::Value, 
     if zip_path.exists() {
         let zip_bytes = tokio::fs::read(&zip_path).await
             .map_err(|e| AppError::Internal(format!("Failed to read ZIP: {}", e)))?;
-        let cursor = std::io::Cursor::new(zip_bytes);
-        let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| AppError::Internal(format!("Failed to open ZIP: {}", e)))?;
-        for i in 0..archive.len() {
-            if let Ok(mut file) = archive.by_index(i) {
-                if file.name().ends_with("manifest.json") {
-                    use std::io::Read;
-                    let mut contents = String::new();
-                    file.read_to_string(&mut contents)
-                        .map_err(|e| AppError::Internal(format!("Failed to read manifest from ZIP: {}", e)))?;
-                    let json: serde_json::Value = serde_json::from_str(&contents)
-                        .map_err(|e| AppError::Internal(format!("Failed to parse manifest: {}", e)))?;
-                    return Ok(json);
-                }
-            }
+        if let Some(json) = manifest_from_zip(zip_bytes)? {
+            return Ok(json);
         }
     }
 
     Err(AppError::NotFound("Manifest not found".to_string()))
+}
+
+/// Reads the first `manifest.json` from a stored package ZIP.
+/// A corrupt or hostile archive is an error, so it never looks like a missing manifest.
+fn manifest_from_zip(zip_bytes: Vec<u8>) -> Result<Option<serde_json::Value>, AppError> {
+    use std::io::Read;
+
+    let cursor = std::io::Cursor::new(zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| AppError::Internal(format!("Failed to open ZIP: {}", e)))?;
+    archive
+        .validate_header_consistency()
+        .map_err(|e| AppError::Internal(format!("ZIP headers are inconsistent: {}", e)))?;
+
+    for i in 0..archive.len() {
+        let mut file = archive
+            .by_index(i)
+            .map_err(|e| AppError::Internal(format!("Failed to read ZIP entry {}: {}", i, e)))?;
+        let name = file
+            .name()
+            .map_err(|e| AppError::Internal(format!("Failed to read ZIP entry {} name: {}", i, e)))?;
+        if name.ends_with("manifest.json") {
+            let mut contents = String::new();
+            file.read_to_string(&mut contents)
+                .map_err(|e| AppError::Internal(format!("Failed to read manifest from ZIP: {}", e)))?;
+            let json: serde_json::Value = serde_json::from_str(&contents)
+                .map_err(|e| AppError::Internal(format!("Failed to parse manifest: {}", e)))?;
+            return Ok(Some(json));
+        }
+    }
+
+    Ok(None)
 }
 
 #[derive(Serialize)]
@@ -428,4 +447,55 @@ async fn get_package_status_handler(
     };
 
     Ok(Json(status))
+}
+
+#[cfg(test)]
+mod manifest_zip_tests {
+    use super::*;
+    use std::io::{Cursor, Write};
+    use zip::write::{SimpleFileOptions, ZipWriter};
+
+    fn zip_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buffer));
+            for (name, data) in entries {
+                zip.start_file(*name, SimpleFileOptions::default()).unwrap();
+                zip.write_all(data).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buffer
+    }
+
+    #[test]
+    fn reads_manifest_from_a_valid_zip() {
+        let bytes = zip_with(&[("pkg/manifest.json", br#"{"id":"x"}"#)]);
+        let json = manifest_from_zip(bytes).ok().flatten().unwrap();
+        assert_eq!(json["id"], "x");
+    }
+
+    #[test]
+    fn returns_none_when_no_manifest_exists() {
+        let bytes = zip_with(&[("pkg/other.json", b"{}")]);
+        assert!(matches!(manifest_from_zip(bytes), Ok(None)));
+    }
+
+    #[test]
+    fn rejects_mismatched_headers_even_with_a_valid_later_manifest() {
+        let mut bytes = zip_with(&[
+            ("aaa/manifest.json", br#"{"who":"first"}"#),
+            ("zzz/manifest.json", br#"{"who":"second"}"#),
+        ]);
+        // The first match is the local header, so the central directory keeps the old name.
+        let at = bytes
+            .windows(3)
+            .position(|w| w == b"aaa")
+            .unwrap();
+        bytes[at..at + 3].copy_from_slice(b"bbb");
+        assert!(matches!(
+            manifest_from_zip(bytes),
+            Err(AppError::Internal(_))
+        ));
+    }
 }
